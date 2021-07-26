@@ -1,5 +1,8 @@
 const Block = require('./Block.js');
 const Transaction = require('./Transaction.js')
+const EC = require('elliptic').ec;
+const ec = new EC('secp256k1');
+const debug = require('debug')('jamieCoin:blockchain');
 
 class Blockchain{
   constructor(){
@@ -9,7 +12,7 @@ class Blockchain{
     this.miningReward = 100;
   }
   startGenesisBlock(){
-    return new Block(0, "23/07/21", "The very first block in the Chain", "0");
+    return new Block("23/07/21", "The very first block in the Chain", "0");
   }
   obtainLatestBlock(){
     return this.blockchain[this.blockchain.length - 1];
@@ -20,20 +23,32 @@ class Blockchain{
   //   newBlock.proofOfWork(this.difficulty);
   //   this.blockchain.push(newBlock);
   // }
-  createTransaction(transaction){
+  addTransaction(transaction){
+    if(!transaction.fromAddress || !transaction.toAddress){
+      throw new Error('Transaction must include a from and to address');
+    }
+    if(!transaction.isValid()){
+      throw new Error('Cannot add invalid transactions to the blockchain');
+    }
     this.pendingTransactions.push(transaction);
+    debug('transaction added: %s', transaction);
   }
+
 
   minePendingTransactions(miningRewardAddress){
-    let block = new Block(Date.now(), this.pendingTransactions);
-    block.proofOfWork(this.difficulty);
-    this.blockchain.push(block);
-    this.pendingTransactions = [
-      new Transaction(null, miningRewardAddress, this.miningReward)
-    ];
-  }
+    let rewardTx = new Transaction(null, miningRewardAddress, this.miningReward);
+    this.pendingTransactions.push(rewardTx);
 
-  getBalanceofAddress(address){
+    let block = new Block(Date.now(), this.pendingTransactions, this.obtainLatestBlock().hash);
+    block.proofOfWork(this.difficulty);
+
+    debug('Block successfully mined!');
+    this.blockchain.push(block);
+
+    this.pendingTransactions = [];
+    }
+
+  getBalanceOfAddress(address){
     let balance = 0;
     for(const block of this.blockchain){
       for(const trans of block.transactions){
@@ -45,33 +60,54 @@ class Blockchain{
         }
       }
     }
+    debug('getBalanceOfAdrees: %s', balance);
     return balance;
   }
 
-  checkChainzAllGood(){
-    for (let i = 1; i < this.blockchain.length; i++){
-      const currentBlock = this.blockchain[i];
-      const precedingBlock = this.blockchain[i-1];
+  getAllTransactionsForWallet(address){
+    const txs = [];
+    for (const block of this.blockchain){
+      for (const tx of block.transactions){
+        if (tx.fromAddress === address || tx.toAddress === address){
+          txs.push(tx);
+        }
+      }
+    }
+  }
 
-      if(currentBlock.hash !== current.Block.computeHash()){
+  checkChainzAllGood(){
+    const realGenesis = JSON.stringify(this.startGenesisBlock());
+      if (realGenesis !== JSON.stringify(this.blockchain[0])) {
         return false;
       }
-      if(currentBlock.precedingHash !== precedingBlock.hash){
-        return false;
+      for (let i = 1; i < this.blockchain.length; i++) {
+        const currentBlock = this.blockchain[i];
+        const previousBlock = this.blockchain[i - 1];
+        if (previousBlock.hash !== currentBlock.precedingHash) {
+          return false;
+        }
+        if (!currentBlock.hasValidTransactions()) {
+          return false;
+        }
+        if (currentBlock.hash !== currentBlock.computeHash()) {
+          return false;
+        }
       }
       return true;
     }
   }
-}
 
-let jamieCoin = new Blockchain();
-console.log("Creating some transactions...");
-jamieCoin.createTransaction(new Transaction('address1', 'address2',100));
-jamieCoin.createTransaction(new Transaction('address2','address1',75));
-console.log(JSON.stringify(jamieCoin, null,4));
 
-console.log("Mining Jamie Coins in process...");
-jamieCoin.minePendingTransactions("Jamie's address");
+
+// console.log("Creating some transactions...");
+// jamieCoin.createTransaction(new Transaction('address1', 'address2',100));
+// jamieCoin.createTransaction(new Transaction('address2','address1',75));
+// console.log(JSON.stringify(jamieCoin, null,4));
+//
+// console.log("Mining Jamie Coins in process...");
+// jamieCoin.minePendingTransactions("Jamie's address");
+
+
 // jamieCoin.addNewBlock(new Block("24/07/2021", {sender: 'Crescent Dragonwagon', recipient: 'Crispin Dragonwagon', quantity: 75}));
 // jamieCoin.addNewBlock(new Block("25/07/2021", {sender: 'Tooty McFruity', recipient: 'Bugzy Malone', quantity: 80}));
 // console.log(JSON.stringify(jamieCoin, null,4));
